@@ -27,7 +27,7 @@ func Connect() *tls.Conn {
 	conn, err := tls.Dial("tcp", "l2e-forum.local:443", config)
 
 	if err != nil {
-		log.Fatal("Unable to establish secure connection!")
+		log.Fatalf("Unable to establish secure connection!: %v", err)
 	}
 
 	return conn
