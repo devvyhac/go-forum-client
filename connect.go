@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"log"
+	"net"
 	"os"
 )
 
@@ -19,12 +20,21 @@ func Connect() *tls.Conn {
 		log.Fatal("Failed to append Certificate to pool!")
 	}
 
-	config := &tls.Config{
-		RootCAs:    rootCAs,
-		ServerName: "l2e-forum.local",
+	host := "l2e-forum.local"
+
+	ips, err := net.LookupIP(host)
+	if err == nil && len(ips) > 0 {
+		host = ips[0].String()
+	} else {
+		host = "10.2.0.213"
 	}
 
-	conn, err := tls.Dial("tcp", "l2e-forum.local:443", config)
+	config := &tls.Config{
+		RootCAs:    rootCAs,
+		ServerName: host,
+	}
+
+	conn, err := tls.Dial("tcp", host+":443", config)
 
 	if err != nil {
 		log.Fatalf("Unable to establish secure connection!: %v", err)
