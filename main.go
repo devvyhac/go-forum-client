@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+type ServerMsg string
+
+var NetworkChannel = make(chan string, 100)
+
 func main() {
 	conn := Connect()
 	defer conn.Close()
@@ -15,6 +19,8 @@ func main() {
 	fmt.Println("Connected to Server!")
 
 	netReader := bufio.NewReader(conn)
+
+	// textarea below here.
 	inputReader := bufio.NewReader(os.Stdin)
 	var name string
 
@@ -37,19 +43,17 @@ func main() {
 			username, _ := inputReader.ReadString('\n')
 			name = strings.TrimSpace(username)
 
-			conn.Write([]byte(username)) // Ensure server expects raw string or JSON here
+			conn.Write([]byte(name + "\n")) // Ensure server expects raw string or JSON here
 		} else if data.Type == "auth_success" {
-			fmt.Print(data.Message)
+			inputReader = nil
 			break
 		}
 	}
 
 	// Phase 2: Concurrent Operations
-	done := make(chan struct{})
 
 	// Receiver Goroutine (Server -> Client)
 	go func() {
-		defer close(done)
 		for {
 			line, err := netReader.ReadString('\n')
 			if err != nil {
@@ -63,30 +67,13 @@ func main() {
 			}
 
 			if msg.Type == "chat" {
-				fmt.Printf("\r%s: %s\n", msg.Sender, msg.Content)
-				fmt.Printf("You~(%s): ", name) // Re-print prompt for UX
+				NetworkChannel <- fmt.Sprintf("\r%s: %s\n", msg.Sender, msg.Content)
 			}
 		}
 	}()
 
-	// Sender Loop (Client -> Server)
-	for {
-		select {
-		case <-done:
-			return
-		default:
-			fmt.Printf("You~(%s): ", name)
-			text, err := inputReader.ReadString('\n')
-			if err != nil {
-				return
-			}
+	os.Stdout.Sync()
+	os.Stdin.Sync()
 
-			// Optional: Wrap in JSON if server expects Message struct
-			conn.Write([]byte(text))
-		}
-	}
+	Chat(conn, name)
 }
-
-// func ReadFromConnection() {
-
-// }

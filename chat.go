@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strings"
 
@@ -15,8 +16,8 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-func main() {
-	p := tea.NewProgram(initialModel())
+func Chat(conn net.Conn, name string) {
+	p := tea.NewProgram(initialModel(conn, name))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Oof: %v\n", err)
 	}
@@ -28,9 +29,11 @@ type model struct {
 	textarea    textarea.Model
 	senderStyle lipgloss.Style
 	err         error
+	conn        net.Conn
+	name        string
 }
 
-func initialModel() model {
+func initialModel(conn net.Conn, name string) model {
 	ta := textarea.New()
 	ta.Placeholder = "Send a message..."
 	ta.SetVirtualCursor(false)
@@ -63,11 +66,16 @@ Type a message and press Enter to send.`)
 		viewport:    vp,
 		senderStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("5")),
 		err:         nil,
+		conn:        conn,
+		name:        name,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(
+		textarea.Blink,
+		Receive(NetworkChannel),
+	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -82,17 +90,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent(lipgloss.NewStyle().Width(m.viewport.Width()).Render(strings.Join(m.messages, "\n")))
 		}
 		m.viewport.GotoBottom()
+
+	case ServerMsg:
+		msgSplit := strings.Split(string(msg), ":")
+		var message string
+		if strings.HasPrefix(strings.TrimSpace(string(msg)), m.name) {
+			message = m.senderStyle.Render("You: ") + strings.TrimSpace(msgSplit[1])
+		} else {
+			randomStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+			message = randomStyle.Render(fmt.Sprintf("%s: ", msgSplit[0])) + strings.TrimSpace(msgSplit[1])
+		}
+		m.messages = append(m.messages, message)
+		m.viewport.SetContent(lipgloss.NewStyle().Width(m.viewport.Width()).Render(strings.Join(m.messages, "\n")))
+		m.viewport.GotoBottom()
+		return m, Receive(NetworkChannel)
+
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			fmt.Println(m.textarea.Value())
 			return m, tea.Quit
 		case "enter":
-			m.messages = append(m.messages, m.senderStyle.Render("You: ")+m.textarea.Value())
-			m.viewport.SetContent(lipgloss.NewStyle().Width(m.viewport.Width()).Render(strings.Join(m.messages, "\n")))
+			chatMsg := m.textarea.Value()
+			if strings.TrimSpace(chatMsg) == "" {
+				return m, nil
+			}
+
 			m.textarea.Reset()
-			m.viewport.GotoBottom()
-			return m, nil
+			return m, ChatSend(m.conn, chatMsg)
 		default:
 			// Send all other keypresses to the textarea.
 			var cmd tea.Cmd
