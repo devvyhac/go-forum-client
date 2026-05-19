@@ -24,7 +24,7 @@ func Connect() *tls.Conn {
 		ServerName: "localhost",
 	}
 
-	conn, err := tls.Dial("tcp", "localhost:443", config)
+	conn, err := tls.Dial("tcp", "12:443", config)
 
 	if err != nil {
 		log.Fatalf("Unable to establish secure connection!: %v", err)
