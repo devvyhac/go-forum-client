@@ -54,6 +54,7 @@ func main() {
 
 	// Receiver Goroutine (Server -> Client)
 	go func() {
+		defer conn.Close()
 		for {
 			line, err := netReader.ReadString('\n')
 			if err != nil {
@@ -66,7 +67,9 @@ func main() {
 				continue
 			}
 
-			if msg.Type == "chat" {
+			if msg.Type == "chat" || msg.Type == "event" {
+				NetworkChannel <- fmt.Sprintf("\r%s: %s\n", msg.Sender, msg.Content)
+			} else if msg.Type == "command" {
 				NetworkChannel <- fmt.Sprintf("\r%s: %s\n", msg.Sender, msg.Content)
 			}
 		}

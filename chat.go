@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -33,7 +32,7 @@ type model struct {
 	name        string
 }
 
-func initialModel(conn net.Conn, name string) model {
+func initialModel(conn net.Conn, name string) *model {
 	ta := textarea.New()
 	ta.Placeholder = "Send a message..."
 	ta.SetVirtualCursor(false)
@@ -60,7 +59,7 @@ Type a message and press Enter to send.`)
 
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 
-	return model{
+	return &model{
 		textarea:    ta,
 		messages:    []string{},
 		viewport:    vp,
@@ -78,38 +77,53 @@ func (m model) Init() tea.Cmd {
 	)
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) RebuildViewport() {
+	content := lipgloss.NewStyle().
+		Width(m.viewport.Width()).
+		Render(strings.Join(m.messages, "\n"))
+
+	m.viewport.SetContent(content)
+}
+
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	// 1. Handle app logic FIRST
 	switch msg := msg.(type) {
+
 	case tea.WindowSizeMsg:
 		m.viewport.SetWidth(msg.Width)
 		m.textarea.SetWidth(msg.Width)
 		m.viewport.SetHeight(msg.Height - m.textarea.Height())
 
-		if len(m.messages) > 0 {
-			// Wrap content before setting it.
-			m.viewport.SetContent(lipgloss.NewStyle().Width(m.viewport.Width()).Render(strings.Join(m.messages, "\n")))
-		}
-		m.viewport.GotoBottom()
-
 	case ServerMsg:
+		atBottom := m.viewport.AtBottom()
+
 		msgSplit := strings.Split(string(msg), ":")
 		var message string
+
 		if strings.HasPrefix(strings.TrimSpace(string(msg)), m.name) {
 			message = m.senderStyle.Render("You: ") + strings.TrimSpace(msgSplit[1])
 		} else {
 			randomStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 			message = randomStyle.Render(fmt.Sprintf("%s: ", msgSplit[0])) + strings.TrimSpace(msgSplit[1])
 		}
+
 		m.messages = append(m.messages, message)
-		m.viewport.SetContent(lipgloss.NewStyle().Width(m.viewport.Width()).Render(strings.Join(m.messages, "\n")))
-		m.viewport.GotoBottom()
+		m.RebuildViewport()
+
+		if atBottom {
+			m.viewport.GotoBottom()
+		}
+
 		return m, Receive(NetworkChannel)
 
 	case tea.KeyPressMsg:
 		switch msg.String() {
+
 		case "ctrl+c", "esc":
-			fmt.Println(m.textarea.Value())
 			return m, tea.Quit
+
 		case "enter":
 			chatMsg := m.textarea.Value()
 			if strings.TrimSpace(chatMsg) == "" {
@@ -118,24 +132,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			m.textarea.Reset()
 			return m, ChatSend(m.conn, chatMsg)
-		default:
-			// Send all other keypresses to the textarea.
-			var cmd tea.Cmd
-			m.textarea, cmd = m.textarea.Update(msg)
-			return m, cmd
 		}
-
-	case cursor.BlinkMsg:
-		// Textarea should also process cursor blinks.
-		var cmd tea.Cmd
-		m.textarea, cmd = m.textarea.Update(msg)
-		return m, cmd
 	}
 
-	return m, nil
+	// 2. ALWAYS forward msg to components (IMPORTANT)
+	var cmd tea.Cmd
+	m.viewport, cmd = m.viewport.Update(msg)
+	cmds = append(cmds, cmd)
+
+	m.textarea, cmd = m.textarea.Update(msg)
+	cmds = append(cmds, cmd)
+
+	return m, tea.Batch(cmds...)
 }
 
-func (m model) View() tea.View {
+func (m *model) View() tea.View {
 	viewportView := m.viewport.View()
 	v := tea.NewView(viewportView + "\n" + m.textarea.View())
 	c := m.textarea.Cursor()

@@ -21,10 +21,10 @@ func Connect() *tls.Conn {
 
 	config := &tls.Config{
 		RootCAs:    rootCAs,
-		ServerName: "l2e-forum.local",
+		ServerName: "localhost",
 	}
 
-	conn, err := tls.Dial("tcp", "l2e-forum.local:443", config)
+	conn, err := tls.Dial("tcp", "localhost:443", config)
 
 	if err != nil {
 		log.Fatalf("Unable to establish secure connection!: %v", err)
